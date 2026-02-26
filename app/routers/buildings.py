@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -39,8 +40,25 @@ def calculate_building_status(reports: list) -> str:
 
 
 @router.get("/")
-def get_buildings(db: Session = Depends(get_db)):
-    buildings = db.query(Building).all()
+def get_buildings(
+    south: Optional[float] = Query(default=None),
+    west: Optional[float] = Query(default=None),
+    north: Optional[float] = Query(default=None),
+    east: Optional[float] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Building)
+
+    # ✅ если bbox передан — фильтруем
+    if None not in (south, west, north, east):
+        q = q.filter(
+            Building.lat >= south,
+            Building.lat <= north,
+            Building.lng >= west,
+            Building.lng <= east,
+        )
+
+    buildings = q.all()
     result = []
 
     for b in buildings:
@@ -63,7 +81,7 @@ def get_buildings(db: Session = Depends(get_db)):
             "address": getattr(b, "address", None),
             "status": status,
             "positive_count": getattr(b, "positive_count", 0),
-            "help_count": help_count,   # 🔵 ВОТ ЭТО НОВОЕ
+            "help_count": help_count,
         })
 
     return result
@@ -113,24 +131,6 @@ def update_building_position(
     db.refresh(b)
     return b
 
-@router.post("/{building_id}/confirm-positive")
-def confirm_positive(building_id: int, db: Session = Depends(get_db)):
-    b = db.query(Building).filter(
-        Building.id == building_id
-    ).first()
-
-    if not b:
-        raise HTTPException(status_code=404, detail="Building not found")
-
-    b.positive_count = (b.positive_count or 0) + 1
-
-    db.commit()
-    db.refresh(b)
-
-    return {
-        "id": b.id,
-        "positive_count": b.positive_count
-    }
     
 @router.post("/{building_id}/confirm-positive")
 def confirm_positive(building_id: int, db: Session = Depends(get_db)):
